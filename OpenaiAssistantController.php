@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../../../vendor/autoload.php';
 
-$apiKey = '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';
+$apiKey = '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';
 $client = OpenAI::client($apiKey);
 
 function createAssistant($client) {
@@ -41,110 +41,22 @@ function getMessages($client, $threadId) {
     $response = $client->threads()->messages()->list($threadId);
     $messages = $response->data;
     $messagesData = [];
-
     foreach ($messages as $message) {
-        // Process content as before
         $content = $message->content;
         if (is_array($content)) {
             $content = json_encode($content);
         }
         $contentJson = json_decode($content, true);
         $messageText = $contentJson[0]['text']['value'];
-
-        // Initialize an array for file IDs
-        $fileIds = [];
-
-        // Check if the message has file IDs and retrieve details for each file ID
-        if (isset($message->file_ids) && is_array($message->file_ids)) {
-            foreach ($message->file_ids as $fileId) {
-                $fileResponse = $client->threads()->messages()->files()->retrieve(
-                    threadId: $threadId,
-                    messageId: $message->id,
-                    fileId: $fileId,
-                );
-
-                // Check if fileResponse is successful and contains the file ID
-                if ($fileResponse && isset($fileResponse->id)) {
-                    array_push($fileIds, $fileResponse->id);
-                }
-            }
-        }
-
         $messageDict = [
             'id' => $message->id,
             'role' => $message->role,
             'content' => $messageText,
-            'file_ids' => $fileIds // Include the retrieved file IDs
         ];
         array_push($messagesData, $messageDict);
     }
-
     echo json_encode($messagesData); 
 }
-
-
-
-function getFileIdsFromThread($client, $threadId) {
-    $response = $client->threads()->messages()->list($threadId);
-    $messages = $response->data;
-    $fileIds = [];
-
-    foreach ($messages as $message) {
-        if (isset($message->file_ids) && is_array($message->file_ids)) {
-            foreach ($message->file_ids as $fileId) {
-                array_push($fileIds, $fileId);
-            }
-        }
-    }
-
-    return $fileIds;
-}
-
-
-function getFileContent($client, $fileId, $outputPath) {
-    $fileContent = $client->files()->content($fileId);
-    
-    // Assuming $fileContent is the raw file data
-    file_put_contents($outputPath, $fileContent);
-
-    echo "File saved to: $outputPath";
-}
-function downloadFilesFromThread($client, $threadId, $outputPath) {
-    $fileIds = getFileIdsFromThread($client, $threadId);
-
-    foreach ($fileIds as $fileId) {
-        try {
-            // Retrieve file details
-            $fileResponse = $client->threads()->messages()->files()->retrieve(
-                threadId: $threadId,
-                messageId: '', // You need to pass the correct messageId here
-                fileId: $fileId,
-            );
-
-            // Proceed only if fileResponse is valid
-            if ($fileResponse && isset($fileResponse->id)) {
-                // Define the specific path for each file
-                $specificOutputPath = $outputPath . '/' . $fileResponse->id;
-
-                // Ensure the directory exists
-                if (!file_exists(dirname($specificOutputPath))) {
-                    mkdir(dirname($specificOutputPath), 0777, true);
-                }
-
-                // Download and save the file content
-                $fileContent = $client->files()->content($fileId);
-                file_put_contents($specificOutputPath, $fileContent);
-                echo "File saved to: $specificOutputPath";
-            } else {
-                echo "Error: File details not found in the response.";
-            }
-        } catch (\Exception $e) {
-            echo "Error: " . $e->getMessage();
-        }
-    }
-}
-
-
 
 
 
@@ -172,18 +84,42 @@ function deleteAssistant($client, $assistantId) {
     $response = $client->assistants()->delete($assistantId);
     echo $response->id;
 }
+function retrieveMessageFile($client, $threadId, $messageId, $fileId) {
+    $response = $client->threads()->messages()->files()->retrieve(
+        threadId: $threadId,
+        messageId: $messageId,
+        fileId: $fileId,
+    );
+
+    echo "File ID: " . $response->id . "\n";
+    echo "Object: " . $response->object . "\n";
+    echo "Created At: " . $response->createdAt . "\n";
+    echo "Thread ID: " . $response->threadId . "\n";
+}
+
+function listMessageFiles($client, $threadId, $messageId) {
+    $response = $client->threads()->messages()->files()->list(
+        threadId: $threadId,
+        messageId: $messageId,
+        parameters: [
+            'limit' => 10,
+        ],
+    );
+
+    $fileIds = [];
+    foreach ($response->data as $file) {
+        array_push($fileIds, $file->id);
+    }
+
+    echo json_encode($fileIds);
+}
 
 
+// Entry point of the PHP script
 if ($argc > 1) {
     $functionName = $argv[1];
     $args = array_slice($argv, 2);
-
-    if ($functionName === 'getFileIdsFromThread') {
-        $fileIds = call_user_func_array($functionName, array_merge([$client], $args));
-        echo json_encode($fileIds);
-    } elseif (in_array($functionName, ['getFileContent', 'downloadFile'])) {
-        call_user_func_array($functionName, array_merge([$client], $args));
-    } elseif (function_exists($functionName)) {
+    if (function_exists($functionName)) {
         call_user_func_array($functionName, array_merge([$client], $args));
     } else {
         echo "No function named {$functionName} found.";
@@ -191,6 +127,5 @@ if ($argc > 1) {
 } else {
     echo "No function specified to call.";
 }
-
 
 ?>

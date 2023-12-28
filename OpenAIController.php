@@ -58,13 +58,37 @@ class OpenAIController extends Controller
     public function getMessages()
     {
         $threadId = Session::get('threadId');
+    
         if (!$threadId) {
             return response()->json(['error' => 'Thread ID not found in session.'], 400);
         }
-
+    
         $messagesJson = $this->runPHPScript('getMessages', [$threadId]);
-        return response($messagesJson)->header('Content-Type', 'application/json');
+        $messagesData = json_decode($messagesJson, true);
+    
+        foreach ($messagesData as $key => $message) {
+            $fileIdsJson = $this->runPHPScript('listMessageFiles', [$threadId, $message['id']]);
+            $fileIds = json_decode($fileIdsJson, true);
+    
+            $messagesData[$key]['fileId'] = $fileIds[0] ?? null; // Assign the first file ID if available
+        }
+    
+        return response()->json($messagesData);
     }
+    
+    
+
+
+    public function retrieveMessageFile($threadId, $messageId, $fileId)
+    {
+        return $this->runPHPScript('retrieveMessageFile', [$threadId, $messageId, $fileId]);
+    }
+
+    public function listMessageFiles($threadId, $messageId)
+    {
+        return $this->runPHPScript('listMessageFiles', [$threadId, $messageId]);
+    }
+
     
 
 
@@ -81,22 +105,6 @@ class OpenAIController extends Controller
         Session::forget('assistantId');
         return redirect('/');
     }
-    public function downloadFiles(Request $request)
-    {
-        $threadId = Session::get('threadId');
-        if (!$threadId) {
-            return response()->json(['error' => 'Thread ID not found in session.'], 400);
-        }
-
-        $downloadDirectory = storage_path('app/public/downloads/' . $threadId);
-        try {
-            $this->runPHPScript('downloadFilesFromThread', [$threadId, $downloadDirectory]);
-            return response()->json(['success' => 'Files downloaded successfully.']);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
-    
 
     public function createNewThread()
     {
@@ -117,8 +125,7 @@ class OpenAIController extends Controller
     $scriptPath = '/Users/dysisx/Documents/assistant/app/Http/Controllers/OpenaiAssistantController.php';
 
     $process = new Process(array_merge(['php', $scriptPath, $function], $args));
-    
-    $process->setWorkingDirectory(base_path());
+    $process->setWorkingDirectory(base_path());  
     $process->run();
 
     if (!$process->isSuccessful()) {
@@ -132,4 +139,5 @@ class OpenAIController extends Controller
 
     return $output;
 }
+
 }
