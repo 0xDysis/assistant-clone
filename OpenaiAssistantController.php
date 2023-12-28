@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../../../vendor/autoload.php';
 
-$apiKey = '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';
+$apiKey = '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';
 $client = OpenAI::client($apiKey);
 
 function createAssistant($client) {
@@ -27,6 +27,7 @@ function createThread($client) {
     echo $thread->id;
 }
 
+
 function addMessage($client, $threadId, $role, $content) {
     $message = $client->threads()->messages()->create($threadId, [
         'role' => $role,
@@ -35,53 +36,53 @@ function addMessage($client, $threadId, $role, $content) {
     echo $message->id;
 }
 
+
 function getMessages($client, $threadId) {
     $response = $client->threads()->messages()->list($threadId);
     $messages = $response->data;
     $messagesData = [];
 
     foreach ($messages as $message) {
-        $fileId = null; // Initialize fileId
+        // Process content as before
+        $content = $message->content;
+        if (is_array($content)) {
+            $content = json_encode($content);
+        }
+        $contentJson = json_decode($content, true);
+        $messageText = $contentJson[0]['text']['value'];
 
-        // Loop through each content item
-        foreach ($message->content as $contentItem) {
-            if (isset($contentItem->annotations)) {
-                foreach ($contentItem->annotations as $annotation) {
-                    // Check for file_path annotation and extract file_id
-                    if ($annotation->type === 'file_path') {
-                        $fileId = $annotation->file_path->file_id;
-                        break; // Break if file_id is found
-                    }
+        // Initialize an array for file IDs
+        $fileIds = [];
+
+        // Check if the message has file IDs and retrieve details for each file ID
+        if (isset($message->file_ids) && is_array($message->file_ids)) {
+            foreach ($message->file_ids as $fileId) {
+                $fileResponse = $client->threads()->messages()->files()->retrieve(
+                    threadId: $threadId,
+                    messageId: $message->id,
+                    fileId: $fileId,
+                );
+
+                // Check if fileResponse is successful and contains the file ID
+                if ($fileResponse && isset($fileResponse->id)) {
+                    array_push($fileIds, $fileResponse->id);
                 }
             }
         }
 
-        $messagesData[] = [
+        $messageDict = [
             'id' => $message->id,
             'role' => $message->role,
-            'content' => $contentItem->text->value, // Assuming 'text' type content
-            'fileId' => $fileId
+            'content' => $messageText,
+            'file_ids' => $fileIds // Include the retrieved file IDs
         ];
+        array_push($messagesData, $messageDict);
     }
 
-    echo json_encode($messagesData);
+    echo json_encode($messagesData); 
 }
 
 
-function fetchFileFromOpenAI($fileId, $apiKey, $outputPath) {
-    $url = "https://api.openai.com/v1/files/" . $fileId . "/content";
-
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Authorization: Bearer ' . $apiKey
-    ]);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-    $response = curl_exec($ch);
-    curl_close($ch);
-
-    file_put_contents($outputPath, $response);
-}
 
 function getFileIdsFromThread($client, $threadId) {
     $response = $client->threads()->messages()->list($threadId);
@@ -89,11 +90,9 @@ function getFileIdsFromThread($client, $threadId) {
     $fileIds = [];
 
     foreach ($messages as $message) {
-        if (isset($message->content) && is_array($message->content)) {
-            foreach ($message->content as $content) {
-                if ($content->type === 'file_path' && isset($content->file_path->file_id)) {
-                    $fileIds[] = $content->file_path->file_id;
-                }
+        if (isset($message->file_ids) && is_array($message->file_ids)) {
+            foreach ($message->file_ids as $fileId) {
+                array_push($fileIds, $fileId);
             }
         }
     }
@@ -101,16 +100,55 @@ function getFileIdsFromThread($client, $threadId) {
     return $fileIds;
 }
 
-function saveFilesFromThread($client, $threadId, $outputDir) {
-    global $apiKey;
 
+function getFileContent($client, $fileId, $outputPath) {
+    $fileContent = $client->files()->content($fileId);
+    
+    // Assuming $fileContent is the raw file data
+    file_put_contents($outputPath, $fileContent);
+
+    echo "File saved to: $outputPath";
+}
+function downloadFilesFromThread($client, $threadId, $outputPath) {
     $fileIds = getFileIdsFromThread($client, $threadId);
-    foreach ($fileIds as $index => $fileId) {
-        $outputPath = $outputDir . '/file_' . uniqid() . '_' . $index . '.txt'; // Dynamic file naming
-        fetchFileFromOpenAI($fileId, $apiKey, $outputPath);
-        echo "File saved to: " . $outputPath . "\n";
+
+    foreach ($fileIds as $fileId) {
+        try {
+            // Retrieve file details
+            $fileResponse = $client->threads()->messages()->files()->retrieve(
+                threadId: $threadId,
+                messageId: '', // You need to pass the correct messageId here
+                fileId: $fileId,
+            );
+
+            // Proceed only if fileResponse is valid
+            if ($fileResponse && isset($fileResponse->id)) {
+                // Define the specific path for each file
+                $specificOutputPath = $outputPath . '/' . $fileResponse->id;
+
+                // Ensure the directory exists
+                if (!file_exists(dirname($specificOutputPath))) {
+                    mkdir(dirname($specificOutputPath), 0777, true);
+                }
+
+                // Download and save the file content
+                $fileContent = $client->files()->content($fileId);
+                file_put_contents($specificOutputPath, $fileContent);
+                echo "File saved to: $specificOutputPath";
+            } else {
+                echo "Error: File details not found in the response.";
+            }
+        } catch (\Exception $e) {
+            echo "Error: " . $e->getMessage();
+        }
     }
 }
+
+
+
+
+
+
 
 function runAssistant($client, $threadId, $assistantId) {
     $run = $client->threads()->runs()->create($threadId, [
@@ -119,11 +157,11 @@ function runAssistant($client, $threadId, $assistantId) {
 
     echo $run->id;
 }
-
 function checkRunStatus($client, $threadId, $runId) {
     $run = $client->threads()->runs()->retrieve($threadId, $runId);
     echo json_encode(['status' => $run->status, 'id' => $run->id]);
 }
+
 
 function deleteThread($client, $threadId) {
     $response = $client->threads()->delete($threadId);
@@ -135,11 +173,17 @@ function deleteAssistant($client, $assistantId) {
     echo $response->id;
 }
 
-// Entry point of the PHP script
+
 if ($argc > 1) {
     $functionName = $argv[1];
     $args = array_slice($argv, 2);
-    if (function_exists($functionName)) {
+
+    if ($functionName === 'getFileIdsFromThread') {
+        $fileIds = call_user_func_array($functionName, array_merge([$client], $args));
+        echo json_encode($fileIds);
+    } elseif (in_array($functionName, ['getFileContent', 'downloadFile'])) {
+        call_user_func_array($functionName, array_merge([$client], $args));
+    } elseif (function_exists($functionName)) {
         call_user_func_array($functionName, array_merge([$client], $args));
     } else {
         echo "No function named {$functionName} found.";
@@ -147,5 +191,6 @@ if ($argc > 1) {
 } else {
     echo "No function specified to call.";
 }
+
 
 ?>

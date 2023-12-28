@@ -26,6 +26,7 @@ class OpenAIController extends Controller
 
         $this->runPHPScript('addMessage', [$threadId, 'user', $userMessage]);
 
+        // Note: We're not running the assistant here anymore, as it will be done asynchronously
         return view('assistant', ['threadId' => $threadId, 'assistantId' => $assistantId]);
     }
 
@@ -52,66 +53,20 @@ class OpenAIController extends Controller
         }
 
         $status = $this->runPHPScript('checkRunStatus', [$threadId, $runId]);
-        return response($status);
+        return response($status); // Assuming the status is a JSON string
     }
-
     public function getMessages()
     {
         $threadId = Session::get('threadId');
-
         if (!$threadId) {
             return response()->json(['error' => 'Thread ID not found in session.'], 400);
         }
 
         $messagesJson = $this->runPHPScript('getMessages', [$threadId]);
-        $messages = json_decode($messagesJson, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return response()->json(['error' => 'Error parsing message data.'], 500);
-        }
-
-        return response()->json($messages);
+        return response($messagesJson)->header('Content-Type', 'application/json');
     }
+    
 
-    public function downloadFile($fileId) {
-        $apiKey = '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'; // Secure this appropriately
-        $fileContent = $this->fetchFileFromOpenAI($fileId, $apiKey);
-
-        if (!$fileContent) {
-            return response()->json(['error' => 'File not found.'], 404);
-        }
-
-        // Assuming the file is a CSV for simplicity
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="downloaded_file.csv"',
-        ];
-
-        return response($fileContent, 200, $headers);
-    }
-
-    private function fetchFileFromOpenAI($fileId, $apiKey) {
-        $url = "https://api.openai.com/v1/files/" . $fileId . "/content";
-
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $apiKey
-        ]);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        return $response;
-    }
-
-    public function saveFilesFromThread($threadId) {
-        // Define the path to the public directory where files will be saved
-        $outputDir = public_path('robots.txt');
-
-        // Call the external PHP script to save files to the specified directory
-        return $this->runPHPScript('saveFilesFromThread', [$threadId, $outputDir]);
-    }
 
     public function deleteThread()
     {
@@ -126,6 +81,22 @@ class OpenAIController extends Controller
         Session::forget('assistantId');
         return redirect('/');
     }
+    public function downloadFiles(Request $request)
+    {
+        $threadId = Session::get('threadId');
+        if (!$threadId) {
+            return response()->json(['error' => 'Thread ID not found in session.'], 400);
+        }
+
+        $downloadDirectory = storage_path('app/public/downloads/' . $threadId);
+        try {
+            $this->runPHPScript('downloadFilesFromThread', [$threadId, $downloadDirectory]);
+            return response()->json(['success' => 'Files downloaded successfully.']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+    
 
     public function createNewThread()
     {
@@ -141,23 +112,24 @@ class OpenAIController extends Controller
         return redirect('/');
     }
 
-    private function runPHPScript($function, $args = []) {
-        $scriptPath = '/Users/dysisx/Documents/assistant/app/Http/Controllers/OpenaiAssistantController.php'; // Correctly updated path
+    private function runPHPScript($function, $args = [])
+{
+    $scriptPath = '/Users/dysisx/Documents/assistant/app/Http/Controllers/OpenaiAssistantController.php';
+
+    $process = new Process(array_merge(['php', $scriptPath, $function], $args));
     
-        $process = new Process(array_merge(['php', $scriptPath, $function], $args));
-        $process->setWorkingDirectory(base_path());  
-        $process->run();
-    
-        if (!$process->isSuccessful()) {
-            throw new ProcessFailedException($process);
-        }
-    
-        $output = trim($process->getOutput());
-        if (!$output) {
-            throw new \Exception("No output from PHP script for function: $function");
-        }
-    
-        return $output;
+    $process->setWorkingDirectory(base_path());
+    $process->run();
+
+    if (!$process->isSuccessful()) {
+        throw new ProcessFailedException($process);
     }
-    
+
+    $output = trim($process->getOutput());
+    if (!$output) {
+        throw new \Exception("No output from PHP script for function: $function");
+    }
+
+    return $output;
+}
 }
