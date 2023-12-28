@@ -56,26 +56,55 @@ class OpenAIController extends Controller
         return response($status); // Assuming the status is a JSON string
     }
     public function getMessages()
-    {
-        $threadId = Session::get('threadId');
+{
+    $threadId = Session::get('threadId');
     
-        if (!$threadId) {
-            return response()->json(['error' => 'Thread ID not found in session.'], 400);
-        }
-    
-        $messagesJson = $this->runPHPScript('getMessages', [$threadId]);
-        $messagesData = json_decode($messagesJson, true);
-    
-        foreach ($messagesData as $key => $message) {
-            $fileIdsJson = $this->runPHPScript('listMessageFiles', [$threadId, $message['id']]);
-            $fileIds = json_decode($fileIdsJson, true);
-    
-            $messagesData[$key]['fileId'] = $fileIds[0] ?? null; // Assign the first file ID if available
-        }
-    
-        return response()->json($messagesData);
+    if (!$threadId) {
+        return response()->json(['error' => 'Thread ID not found in session.'], 400);
     }
     
+    $messagesJson = $this->runPHPScript('getMessages', [$threadId]);
+    $messagesData = json_decode($messagesJson, true);
+
+    foreach ($messagesData as $key => $message) {
+        // Fetch the list of files for each message
+        $fileIdsJson = $this->runPHPScript('listMessageFiles', [$threadId, $message['id']]);
+        $fileIds = json_decode($fileIdsJson, true);
+
+        // Check if there are any files associated with the message
+        if (!empty($fileIds)) {
+            $fileId = $fileIds[0]; // Assuming each message has at most one file
+            $messagesData[$key]['fileId'] = $fileId;
+
+            // Store threadId and messageId for each fileId
+            Session::put($fileId . '-threadId', $threadId);
+            Session::put($fileId . '-messageId', $message['id']);
+        } else {
+            $messagesData[$key]['fileId'] = null;
+        }
+    }
+    
+    return response()->json($messagesData);
+}
+
+
+public function downloadMessageFile($fileId)
+{
+    // Call the PHP script to download the file content
+    $fileContent = $this->runPHPScript('retrieveMessageFile', [$fileId]);
+
+    // Determine the content type and filename (you may need to adjust this based on your requirements)
+    $headers = [
+        'Content-Type' => 'application/octet-stream', // Adjust this according to the actual file type
+        'Content-Disposition' => 'attachment; filename="' . $fileId . '.csv"' // Example filename, adjust as needed
+    ];
+
+    return response($fileContent)->withHeaders($headers);
+}
+
+
+
+
     
 
 
@@ -88,6 +117,9 @@ class OpenAIController extends Controller
     {
         return $this->runPHPScript('listMessageFiles', [$threadId, $messageId]);
     }
+
+   
+
 
     
 

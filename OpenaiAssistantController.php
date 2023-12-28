@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../../../vendor/autoload.php';
 
-$apiKey = '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';
+$apiKey = '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';
 $client = OpenAI::client($apiKey);
 
 function createAssistant($client) {
@@ -84,18 +84,16 @@ function deleteAssistant($client, $assistantId) {
     $response = $client->assistants()->delete($assistantId);
     echo $response->id;
 }
-function retrieveMessageFile($client, $threadId, $messageId, $fileId) {
-    $response = $client->threads()->messages()->files()->retrieve(
-        threadId: $threadId,
-        messageId: $messageId,
-        fileId: $fileId,
-    );
+function retrieveMessageFile($client, $fileId) {
+    // Retrieve the file content using the download method
+    $fileContent = $client->files()->download($fileId);
 
-    echo "File ID: " . $response->id . "\n";
-    echo "Object: " . $response->object . "\n";
-    echo "Created At: " . $response->createdAt . "\n";
-    echo "Thread ID: " . $response->threadId . "\n";
+    echo $fileContent;
 }
+
+
+
+
 
 function listMessageFiles($client, $threadId, $messageId) {
     $response = $client->threads()->messages()->files()->list(
