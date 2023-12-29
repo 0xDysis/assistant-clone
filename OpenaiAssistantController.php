@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../../../vendor/autoload.php';
 
-$apiKey = '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';
+$apiKey = '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';
 $client = OpenAI::client($apiKey);
 
 function createAssistant($client) {
@@ -13,7 +13,7 @@ function createAssistant($client) {
 
     $assistant = $client->assistants()->create([
         'name' => "Retrieval Assistant",
-        'instructions' => "VanOnsAssist is a knowledgeable, friendly, and professional AI assistant for the web development company van-ons, specifically designed to help you find the right information about anything concerning the van-ons operations",
+        'instructions' => " YOU ALWAYS CONVERT REQUESTS FOR GRAPHS PLOTS OR ANYTHING OF THE LIKE TO A DOWNLOADABLE FILE IN THE PNG FORMAT VanOnsAssist is a knowledgeable, friendly, and professional AI assistant for the web development company van-ons, specifically designed to help you find the right information about anything concerning the van-ons operations",
         'tools' => [['type' => 'code_interpreter']],
         'model' => 'gpt-3.5-turbo-1106',
         'file_ids' => [$file1->id]
@@ -88,8 +88,13 @@ function retrieveMessageFile($client, $fileId) {
     // Retrieve the file content using the download method
     $fileContent = $client->files()->download($fileId);
 
+    // Inform PHP that it should handle the data as binary
+    header('Content-Type: application/octet-stream');
+
+    // Output the file content directly in binary form
     echo $fileContent;
 }
+
 
 
 
